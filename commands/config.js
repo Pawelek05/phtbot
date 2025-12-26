@@ -8,11 +8,19 @@ module.exports = {
 
     let config = await GuildConfig.findOne({ guildId: message.guild.id });
 
-    if (args[0] === "prefix") {
-      config.prefix = args[1];
-      await config.save();
-      message.reply("✅ Prefix updated");
-    }
+if (args[0] === "prefix") {
+  if (!args[1]) return message.reply("❌ Please provide a prefix");
+  
+  if (!config) {
+    config = await GuildConfig.create({ guildId: message.guild.id, prefix: args[1] });
+  } else {
+    config.prefix = args[1];
+    await config.save();
+  }
+
+  message.reply(`✅ Prefix updated to: ${args[1]}`);
+}
+
 
     if (args[0] === "summary") {
       message.channel.send(

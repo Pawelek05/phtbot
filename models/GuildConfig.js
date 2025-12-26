@@ -1,19 +1,25 @@
 const { Schema, model } = require("mongoose");
 
 const guildSchema = new Schema({
-  guildId: String,
+  guildId: { type: String, required: true },
+  
+  // Domyślny prefix ustawiony na "!"
   prefix: { type: String, default: "!" },
 
+  // System poziomów
   levelingEnabled: { type: Boolean, default: true },
   xpPerLevel: { type: Number, default: 100 },
-  levelRoles: { type: Map, of: String },
+  levelRoles: { type: Map, of: String }, // np. { "5": "RoleID" }
 
+  // Scramble Game
   scrambleEnabled: { type: Boolean, default: false },
-  scrambleChannel: String,
+  scrambleChannel: { type: String, default: null },
   scrambleXP: { type: Number, default: 50 },
-  scrambleTimeout: { type: Number, default: 30 },
+  scrambleTimeout: { type: Number, default: 30 }, // w sekundach
 
-  channelXP: { type: Map, of: Number }
+  // XP za wiadomości na kanałach
+  channelXP: { type: Map, of: Number } // np. { "ChannelID": 10 }
 });
 
+// Jeśli dokument nie istnieje, automatycznie użyje wartości domyślnych
 module.exports = model("GuildConfig", guildSchema);
