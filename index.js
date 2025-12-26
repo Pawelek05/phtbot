@@ -71,16 +71,51 @@ try { await command.execute(message, args); } catch (e) { console.error(e); mess
 });
 
 
-// simple slash handling
 client.on('interactionCreate', async (interaction) => {
-if (!interaction.isChatInputCommand()) return;
-const cmd = client.commands.get(interaction.commandName);
-if (!cmd) return;
-// bind a simple object to mimic message for commands that expect message (we kept message API)
-const fakeMessage = { guild: interaction.guild, author: interaction.user, member: interaction.member, channel: interaction.channel, client, reply: (txt)=>interaction.reply(txt) };
-try {
-await cmd.execute(fakeMessage, []);
-} catch (e) { console.error(e); interaction.reply({ content: 'Slash command error', ephemeral: true }); }
+  if (!interaction.isChatInputCommand()) return;
+  const cmd = client.commands.get(interaction.commandName);
+  if (!cmd) return;
+
+  // Build args array from interaction options (supports strings, numbers, channels, roles, users)
+  const args = [];
+  try {
+    for (const opt of interaction.options.data) {
+      // prefer value; if option is a subcommand with options, we flatten name+values
+      if (opt.type === 1 && opt.options) { // subcommand group / subcommand
+        // push subcommand name
+        args.push(opt.name);
+        for (const subOpt of opt.options) {
+          args.push(subOpt.value ?? subOpt.name);
+        }
+      } else {
+        args.push(opt.value ?? opt.name);
+      }
+    }
+  } catch (e) {
+    // fallback empty args
+  }
+
+  // create message-like object so command code can use same API (guild, author, member, channel, client, reply)
+  const fakeMessage = {
+    guild: interaction.guild,
+    author: interaction.user,
+    member: interaction.member,
+    channel: interaction.channel,
+    client,
+    // reply should respect ephemeral responses when appropriate; we default to non-ephemeral
+    reply: (contentOrOptions) => {
+      if (typeof contentOrOptions === 'string') return interaction.reply({ content: contentOrOptions, ephemeral: false });
+      // when command passes object with embeds/files etc.
+      return interaction.reply({ ...contentOrOptions, ephemeral: false });
+    }
+  };
+
+  try {
+    await cmd.execute(fakeMessage, args);
+  } catch (e) {
+    console.error("Slash command error:", e);
+    try { await interaction.reply({ content: 'Slash command error', ephemeral: true }); } catch {}
+  }
 });
 
 
