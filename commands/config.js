@@ -1,14 +1,12 @@
 // commands/config.js
-const GuildConfig = require("../models/GuildConfig");
+const getOrCreateConfig = require("../utils/getOrCreateConfig");
 const isOwner = require("../utils/isOwner");
 const { startForGuild, stopForGuild } = require("../systems/scrambleManager");
 
 function extractIdFromMention(mention) {
   if (!mention) return null;
-  // channel: <#id>, role: <@&id>, user: <@!id>
   const m = mention.match(/<[@#&!]?!?&?(\d+)>/);
   if (m) return m[1];
-  // if raw id
   if (/^\d{5,}$/.test(mention)) return mention;
   return null;
 }
@@ -16,26 +14,22 @@ function extractIdFromMention(mention) {
 module.exports = {
   name: "config",
   description: "Server configuration (owner only)",
-  // message = Message-like object (we also accept the fakeMessage built for slash)
   async execute(message, args = []) {
+    // debug logs to help find double execution (remove later)
+    console.log(`[config] invoked by ${message.author?.id} in guild ${message.guild?.id} (pid ${process.pid})`);
+
+    if (!isOwner(message)) return message.reply("Only the server owner can use config commands.");
+
+    const sub = (args[0] || "").toString().toLowerCase();
+    if (!sub) return message.reply("Usage: config <prefix|leveling|levelrole|announce|channelxp|scramble> ...");
+
+    const cfg = await getOrCreateConfig(message.guild.id);
+
     try {
-      // allow being called with an `interaction` object too -> we expect index.js to pass same fakeMessage
-      // check permissions (owner)
-      if (!isOwner(message)) return message.reply("Only the server owner can use config commands.");
-
-      // args: array of strings (from prefix command split OR built from interaction options)
-      const sub = args[0];
-      if (!sub) return message.reply("Usage: config <prefix|leveling|levelrole|announce|channelxp|scramble> ...");
-
-      // Use atomic upsert where possible for prefix; for others get-or-create
-      let cfg = await GuildConfig.findOne({ guildId: message.guild.id });
-      if (!cfg) cfg = await GuildConfig.create({ guildId: message.guild.id });
-
-      // ---------- prefix ----------
       if (sub === "prefix") {
         const newP = args[1];
         if (!newP) return message.reply("Provide a prefix, e.g. `config prefix ?`.");
-        const updated = await GuildConfig.findOneAndUpdate(
+        const updated = await cfg.model.findOneAndUpdate(
           { guildId: message.guild.id },
           { $set: { prefix: newP } },
           { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -43,7 +37,6 @@ module.exports = {
         return message.reply(`✅ Prefix set to \`${updated.prefix}\``);
       }
 
-      // ---------- leveling on/off ----------
       if (sub === "leveling") {
         const op = args[1];
         if (!op) return message.reply("Usage: config leveling on|off");
@@ -52,7 +45,6 @@ module.exports = {
         return message.reply(`✅ Leveling ${op === "on" ? "enabled" : "disabled"}`);
       }
 
-      // ---------- levelrole ----------
       if (sub === "levelrole") {
         const level = args[1];
         let roleId = args[2];
@@ -63,7 +55,6 @@ module.exports = {
         return message.reply(`✅ Role <@&${roleId}> will be awarded at level ${level}`);
       }
 
-      // ---------- announce channel ----------
       if (sub === "announce") {
         let channelId = args[1];
         if (!channelId) return message.reply("Usage: config announce <channelId|#channel|off>");
@@ -78,23 +69,20 @@ module.exports = {
         return message.reply(`✅ Level announce channel set to <#${channelId}>`);
       }
 
-      // ---------- channel xp ----------
       if (sub === "channelxp") {
         const op = args[1];
         if (!op) return message.reply("Usage: config channelxp add|remove|enable|disable <channelId> <xp>");
         if (op === "add") {
-          let channelId = args[2];
+          let channelId = extractIdFromMention(args[2]) || args[2];
           const xp = Number(args[3] || 0);
           if (!channelId || !xp) return message.reply("Usage: config channelxp add <channelId> <xp>");
-          channelId = extractIdFromMention(channelId) || channelId;
           cfg.channelXP.set(channelId, xp);
           await cfg.save();
           return message.reply(`✅ ${xp} XP will be granted for messages in <#${channelId}>`);
         }
         if (op === "remove") {
-          let channelId = args[2];
+          let channelId = extractIdFromMention(args[2]) || args[2];
           if (!channelId) return message.reply("Usage: config channelxp remove <channelId>");
-          channelId = extractIdFromMention(channelId) || channelId;
           cfg.channelXP.delete(channelId);
           await cfg.save();
           return message.reply(`✅ Channel XP removed for <#${channelId}>`);
@@ -106,7 +94,6 @@ module.exports = {
         }
       }
 
-      // ---------- scramble game ----------
       if (sub === "scramble") {
         const op = args[1];
         if (!op) return message.reply("Usage: config scramble on|off|channel <channelId>|interval <seconds>|xp <amount>|timeout <secs>");
@@ -123,9 +110,8 @@ module.exports = {
           return message.reply("✅ Scramble disabled for this server");
         }
         if (op === "channel") {
-          let ch = args[2];
+          let ch = extractIdFromMention(args[2]) || args[2];
           if (!ch) return message.reply("Provide channelId");
-          ch = extractIdFromMention(ch) || ch;
           cfg.scrambleChannel = ch;
           await cfg.save();
           startForGuild(message.client, cfg);
