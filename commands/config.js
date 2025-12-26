@@ -11,11 +11,21 @@ function extractIdFromMention(mention) {
   return null;
 }
 
+function parseTimeValue(input) {
+  if (!input) return null;
+  let str = input.toString().toLowerCase();
+  let multiplier = 1; // default seconds
+  if (str.endsWith("h")) { multiplier = 3600; str = str.slice(0, -1); }
+  else if (str.endsWith("m")) { multiplier = 60; str = str.slice(0, -1); }
+  const val = Number(str);
+  if (isNaN(val) || val <= 0) return null;
+  return val * multiplier;
+}
+
 module.exports = {
   name: "config",
   description: "Server configuration (owner only)",
   async execute(message, args = []) {
-    // debug logs to help find double execution (remove later)
     console.log(`[config] invoked by ${message.author?.id} in guild ${message.guild?.id} (pid ${process.pid})`);
 
     if (!isOwner(message)) return message.reply("Only the server owner can use config commands.");
@@ -26,6 +36,7 @@ module.exports = {
     const cfg = await getOrCreateConfig(message.guild.id);
 
     try {
+      // ===== PREFIX =====
       if (sub === "prefix") {
         const newP = args[1];
         if (!newP) return message.reply("Provide a prefix, e.g. `config prefix ?`.");
@@ -37,6 +48,7 @@ module.exports = {
         return message.reply(`✅ Prefix set to \`${updated.prefix}\``);
       }
 
+      // ===== LEVELING =====
       if (sub === "leveling") {
         const op = args[1];
         if (!op) return message.reply("Usage: config leveling on|off");
@@ -45,6 +57,7 @@ module.exports = {
         return message.reply(`✅ Leveling ${op === "on" ? "enabled" : "disabled"}`);
       }
 
+      // ===== LEVEL ROLE =====
       if (sub === "levelrole") {
         const level = args[1];
         let roleId = args[2];
@@ -55,6 +68,7 @@ module.exports = {
         return message.reply(`✅ Role <@&${roleId}> will be awarded at level ${level}`);
       }
 
+      // ===== ANNOUNCE =====
       if (sub === "announce") {
         let channelId = args[1];
         if (!channelId) return message.reply("Usage: config announce <channelId|#channel|off>");
@@ -69,6 +83,7 @@ module.exports = {
         return message.reply(`✅ Level announce channel set to <#${channelId}>`);
       }
 
+      // ===== CHANNEL XP =====
       if (sub === "channelxp") {
         const op = args[1];
         if (!op) return message.reply("Usage: config channelxp add|remove|enable|disable <channelId> <xp>");
@@ -94,9 +109,11 @@ module.exports = {
         }
       }
 
+      // ===== SCRAMBLE =====
       if (sub === "scramble") {
         const op = args[1];
-        if (!op) return message.reply("Usage: config scramble on|off|channel <channelId>|interval <seconds>|xp <amount>|timeout <secs>");
+        if (!op) return message.reply("Usage: config scramble on|off|channel <channelId>|interval <value>|xp <amount>|timeout <value>");
+
         if (op === "on") {
           cfg.scrambleEnabled = true; cfg.features.set("scramble", true);
           await cfg.save();
@@ -117,17 +134,15 @@ module.exports = {
           startForGuild(message.client, cfg);
           return message.reply(`✅ Scramble channel set to <#${ch}>`);
         }
-        if (op === "interval") {
-          const val = Number(args[2]); if (!val) return message.reply("Provide seconds");
-          cfg.scrambleInterval = val; await cfg.save(); return message.reply(`✅ Scramble interval set to ${val}s`);
+        if (op === "interval" || op === "timeout") {
+          const val = parseTimeValue(args[2]);
+          if (!val) return message.reply("Invalid value. Example: 30, 5m, 1h");
+          if (op === "interval") { cfg.scrambleInterval = val; await cfg.save(); return message.reply(`✅ Scramble interval set to ${args[2]}`); }
+          if (op === "timeout") { cfg.scrambleTimeout = val; await cfg.save(); return message.reply(`✅ Scramble timeout set to ${args[2]}`); }
         }
         if (op === "xp") {
           const val = Number(args[2]); if (!val) return message.reply("Provide xp");
           cfg.scrambleXP = val; await cfg.save(); return message.reply(`✅ Scramble XP set to ${val}`);
-        }
-        if (op === "timeout") {
-          const val = Number(args[2]); if (!val) return message.reply("Provide seconds");
-          cfg.scrambleTimeout = val; await cfg.save(); return message.reply(`✅ Scramble timeout set to ${val}s`);
         }
       }
 

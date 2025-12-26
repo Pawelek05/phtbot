@@ -4,25 +4,23 @@ const getOrCreateConfig = require('../utils/getOrCreateConfig');
 
 module.exports = {
   name: 'help',
-  description: 'Show help with pagination and server feature status',
+  description: 'Show help with pagination and server features status',
   async execute(message, args) {
     const guildId = message.guild?.id;
     const cfg = guildId ? await getOrCreateConfig(guildId) : null;
 
-    const feature = (key, fallback) => {
-      if (!cfg) return fallback ?? false;
-      const mapVal = cfg.features?.get?.(key);
-      if (typeof mapVal === 'boolean') return mapVal;
-      if (key === 'leveling') return cfg.levelingEnabled ?? fallback ?? false;
-      if (key === 'channelXP') return cfg.channelXPEnabled ?? fallback ?? false;
-      if (key === 'scramble') return cfg.scrambleEnabled ?? fallback ?? false;
-      return fallback ?? false;
-    };
+const feature = (key) => {
+  if (!cfg) return false;
+  if (cfg.features instanceof Map) return !!cfg.features.get(key);
+  if (typeof cfg.features === 'object' && cfg.features !== null) return !!cfg.features[key];
+  return false;
+};
+
 
     const prefix = cfg?.prefix || "!";
 
     const pages = [
-      { title: 'General', desc: `${prefix}help - show this help. Use buttons to navigate.\n\nExample: \`${prefix}level\`` },
+      { title: 'General', desc: `${prefix}help - show this help. Use buttons to navigate.` },
       { title: 'Leveling', desc: `${prefix}level - show your level\n${prefix}leaderboard - top 10\n${prefix}config leveling on|off\n${prefix}config levelrole <level> <roleId>\n${prefix}config announce <channelId|off>` },
       { title: 'Channel XP', desc: `${prefix}config channelxp add <channelId> <xp>\n${prefix}config channelxp remove <channelId>\n${prefix}config channelxp enable|disable` },
       { title: 'Scramble Game', desc: `${prefix}config scramble on|off\n${prefix}config scramble channel <channelId>\n${prefix}config scramble interval <seconds>\n${prefix}config scramble xp <amount>\n${prefix}config scramble timeout <seconds>` },
