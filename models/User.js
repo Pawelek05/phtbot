@@ -1,10 +1,11 @@
-const { Schema, model } = require("mongoose");
+const { Schema: S, model: M } = require("mongoose");
 
-const userSchema = new Schema({
-  guildId: String,
-  userId: String,
-  xp: { type: Number, default: 0 },
-  level: { type: Number, default: 1 }
+
+const userSchema = new S({
+guildId: String,
+userId: String,
+xp: { type: Number, default: 0 },
+level: { type: Number, default: 1 }
 });
-
-module.exports = model("User", userSchema);
+userSchema.index({ guildId: 1, userId: 1 }, { unique: true });
+module.exports = M("User", userSchema);
