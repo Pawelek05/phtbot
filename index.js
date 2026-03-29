@@ -1,12 +1,5 @@
 require('dotenv').config();
-const {
-  Client,
-  GatewayIntentBits,
-  Collection,
-  REST,
-  Routes,
-  Partials,
-} = require('discord.js');
+const { Client, GatewayIntentBits, Collection, REST, Routes, Partials } = require('discord.js');
 const connectDB = require('./database');
 const fs = require('fs');
 const path = require('path');
@@ -45,7 +38,7 @@ async function main() {
 
   const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
-  client.once('ready', async () => {
+  client.once('clientReady', async () => {
     console.log('Logged in as', client.user.tag);
 
     const slashCommands = [];
@@ -84,7 +77,6 @@ async function main() {
     if (message.author.bot || !message.guild) return;
 
     const prefix = await getPrefix(message.guild.id);
-
     if (!message.content.startsWith(prefix)) {
       await channelXP(message);
       return;
@@ -96,7 +88,7 @@ async function main() {
     if (!command) return;
 
     try {
-      await command.execute(message, args);
+      await command.execute(message, args, client);
     } catch (e) {
       console.error(e);
       message.reply('Command error');
@@ -133,34 +125,26 @@ async function main() {
         if (typeof contentOrOptions === 'string') {
           return interaction.reply({
             content: contentOrOptions,
-            ephemeral: false,
             fetchReply: true,
           });
         }
 
         return interaction.reply({
           ...contentOrOptions,
-          ephemeral: false,
           fetchReply: true,
         });
-      },
+      }
     };
 
     try {
-      await cmd.execute(fakeMessage, args);
+      await cmd.execute(fakeMessage, args, client);
     } catch (e) {
       console.error('Slash command error:', e);
       try {
         if (interaction.replied || interaction.deferred) {
-          await interaction.followUp({
-            content: 'Slash command error',
-            ephemeral: true,
-          });
+          await interaction.followUp({ content: 'Slash command error' });
         } else {
-          await interaction.reply({
-            content: 'Slash command error',
-            ephemeral: true,
-          });
+          await interaction.reply({ content: 'Slash command error' });
         }
       } catch {}
     }
