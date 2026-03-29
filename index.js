@@ -1,5 +1,12 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, Collection, REST, Routes } = require('discord.js');
+const {
+  Client,
+  GatewayIntentBits,
+  Collection,
+  REST,
+  Routes,
+  Partials,
+} = require('discord.js');
 const connectDB = require('./database');
 const fs = require('fs');
 const path = require('path');
@@ -8,119 +15,161 @@ const getPrefix = require('./utils/getPrefix');
 const channelXP = require('./systems/channelXP');
 const { restartAll } = require('./systems/scrambleManager');
 
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.DirectMessages,
+  ],
+  partials: [
+    Partials.Message,
+    Partials.Channel,
+    Partials.Reaction,
+  ],
+});
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 client.commands = new Collection();
-
 
 // load message commands
 const commandFiles = fs.readdirSync(path.join(__dirname, 'commands')).filter(f => f.endsWith('.js'));
 for (const file of commandFiles) {
-const cmd = require(`./commands/${file}`);
-client.commands.set(cmd.name, cmd);
+  const cmd = require(`./commands/${file}`);
+  client.commands.set(cmd.name, cmd);
 }
-
 
 async function main() {
-await connectDB();
+  await connectDB();
 
+  const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
-// register slash commands per guild on startup (for simplicity only for guilds bot is in)
-const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
-const slashCommands = [];
-for (const cmd of client.commands.values()) {
-slashCommands.push({ name: cmd.name, description: cmd.description || 'No description' });
-}
+  client.once('ready', async () => {
+    console.log('Logged in as', client.user.tag);
 
+    const slashCommands = [];
+    const added = new Set();
 
-client.once('ready', async () => {
-console.log('Logged in as', client.user.tag);
+    for (const cmd of client.commands.values()) {
+      if (added.has(cmd.name)) continue;
+      added.add(cmd.name);
 
-
-// register guild commands to speed up testing (for each guild)
-for (const guild of client.guilds.cache.values()) {
-try {
-await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, guild.id), { body: slashCommands });
-console.log('Registered slash commands for', guild.id);
-} catch (e) { console.error('Slash register error', e.message); }
-}
-
-
-// start scramble timers for configured guilds
-await restartAll(client);
-});
-
-
-client.on('messageCreate', async (message) => {
-if (message.author.bot || !message.guild) return;
-
-
-const prefix = await getPrefix(message.guild.id);
-if (!message.content.startsWith(prefix)) {
-// non-command messages -> channel XP
-await channelXP(message);
-return;
-}
-
-
-const args = message.content.slice(prefix.length).trim().split(/ +/);
-const commandName = args.shift().toLowerCase();
-const command = client.commands.get(commandName);
-if (!command) return;
-try { await command.execute(message, args); } catch (e) { console.error(e); message.reply('Command error'); }
-});
-
-
-client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-  const cmd = client.commands.get(interaction.commandName);
-  if (!cmd) return;
-
-  // Build args array from interaction options (supports strings, numbers, channels, roles, users)
-  const args = [];
-  try {
-    for (const opt of interaction.options.data) {
-      // prefer value; if option is a subcommand with options, we flatten name+values
-      if (opt.type === 1 && opt.options) { // subcommand group / subcommand
-        // push subcommand name
-        args.push(opt.name);
-        for (const subOpt of opt.options) {
-          args.push(subOpt.value ?? subOpt.name);
-        }
+      if (cmd.data && typeof cmd.data.toJSON === 'function') {
+        slashCommands.push(cmd.data.toJSON());
       } else {
-        args.push(opt.value ?? opt.name);
+        slashCommands.push({
+          name: cmd.name,
+          description: cmd.description || 'No description',
+        });
       }
     }
-  } catch (e) {
-    // fallback empty args
-  }
 
-  // create message-like object so command code can use same API (guild, author, member, channel, client, reply)
-  const fakeMessage = {
-    guild: interaction.guild,
-    author: interaction.user,
-    member: interaction.member,
-    channel: interaction.channel,
-    client,
-    // reply should respect ephemeral responses when appropriate; we default to non-ephemeral
-    reply: (contentOrOptions) => {
-      if (typeof contentOrOptions === 'string') return interaction.reply({ content: contentOrOptions, ephemeral: false });
-      // when command passes object with embeds/files etc.
-      return interaction.reply({ ...contentOrOptions, ephemeral: false });
+    for (const guild of client.guilds.cache.values()) {
+      try {
+        await rest.put(
+          Routes.applicationGuildCommands(process.env.CLIENT_ID, guild.id),
+          { body: slashCommands }
+        );
+        console.log('Registered slash commands for', guild.id);
+      } catch (e) {
+        console.error('Slash register error', e.message);
+      }
     }
-  };
 
-  try {
-    await cmd.execute(fakeMessage, args);
-  } catch (e) {
-    console.error("Slash command error:", e);
-    try { await interaction.reply({ content: 'Slash command error', ephemeral: true }); } catch {}
-  }
-});
+    await restartAll(client);
+  });
 
+  client.on('messageCreate', async (message) => {
+    if (message.author.bot || !message.guild) return;
 
-await client.login(process.env.TOKEN);
+    const prefix = await getPrefix(message.guild.id);
+
+    if (!message.content.startsWith(prefix)) {
+      await channelXP(message);
+      return;
+    }
+
+    const args = message.content.slice(prefix.length).trim().split(/ +/);
+    const commandName = args.shift()?.toLowerCase();
+    const command = client.commands.get(commandName);
+    if (!command) return;
+
+    try {
+      await command.execute(message, args);
+    } catch (e) {
+      console.error(e);
+      message.reply('Command error');
+    }
+  });
+
+  client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isChatInputCommand()) return;
+
+    const cmd = client.commands.get(interaction.commandName);
+    if (!cmd) return;
+
+    const args = [];
+    try {
+      for (const opt of interaction.options.data) {
+        if (opt.type === 1 && opt.options) {
+          args.push(opt.name);
+          for (const subOpt of opt.options) {
+            args.push(subOpt.value ?? subOpt.name);
+          }
+        } else {
+          args.push(opt.value ?? opt.name);
+        }
+      }
+    } catch (e) {}
+
+    const fakeMessage = {
+      guild: interaction.guild,
+      author: interaction.user,
+      member: interaction.member,
+      channel: interaction.channel,
+      client,
+      reply: (contentOrOptions) => {
+        if (typeof contentOrOptions === 'string') {
+          return interaction.reply({
+            content: contentOrOptions,
+            ephemeral: false,
+            fetchReply: true,
+          });
+        }
+
+        return interaction.reply({
+          ...contentOrOptions,
+          ephemeral: false,
+          fetchReply: true,
+        });
+      },
+    };
+
+    try {
+      await cmd.execute(fakeMessage, args);
+    } catch (e) {
+      console.error('Slash command error:', e);
+      try {
+        if (interaction.replied || interaction.deferred) {
+          await interaction.followUp({
+            content: 'Slash command error',
+            ephemeral: true,
+          });
+        } else {
+          await interaction.reply({
+            content: 'Slash command error',
+            ephemeral: true,
+          });
+        }
+      } catch {}
+    }
+  });
+
+  await client.login(process.env.TOKEN);
 }
 
-
-main().catch(err => { console.error(err); process.exit(1); });
+main().catch(err => {
+  console.error(err);
+  process.exit(1);
+});
